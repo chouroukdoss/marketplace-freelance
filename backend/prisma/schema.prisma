@@ -1,0 +1,163 @@
+datasource db {
+  provider = "postgresql"
+url      = "postgresql://postgres:chourouk@localhost:5432/marketplace?schema=public"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Modèle de base pour l'héritage
+model Utilisateur {
+  id         Int    @id @default(autoincrement())
+  email      String @unique
+  motDePasse String
+  nom        String
+  role       String // EX: "FREELANCE" ou "ENTREPRISE"
+
+  messagesEnvoyes Message[]   @relation("MessagesEnvoyes")
+  messagesRecus   Message[]   @relation("MessagesRecus")
+  freelance       Freelance?
+  entreprise      Entreprise?
+}
+
+model Freelance {
+  id                 Int         @id
+  utilisateur        Utilisateur @relation(fields: [id], references: [id], onDelete: Cascade)
+  titreProfessionnel String?
+  competences        String?
+  cvUrl              String?
+  portfolioUrl       String?
+  noteMoyenne        Float       @default(0.0)
+  estValide          Boolean     @default(false)
+
+  // Relation inverse pour le suivi des candidatures du freelance
+  candidatures Candidature[]
+  avis         Avis[]
+  contrats           Contrat[]
+}
+
+model Entreprise {
+  id               Int          @id
+  nomEntreprise    String
+  description      String?
+
+  // Rendre les champs optionnels avec '?' pour ne pas bloquer les anciennes lignes
+  matriculeFiscal  String?      @unique
+  registreCommerce String?
+  adresseSiege     String?
+  telephonePro     String?
+  siteWeb          String?
+  estVerifie       Boolean      @default(false)
+
+  utilisateur      Utilisateur  @relation(fields: [id], references: [id], onDelete: Cascade)
+  missions         Mission[]
+  avis             Avis[]
+  contrats           Contrat[]
+}
+
+model Mission {
+  id                    Int           @id @default(autoincrement())
+  titre                 String
+  description           String        @db.Text
+  budget                Float
+  competences           String?       // Compétences requises stockées (ex: "React, Node.js")
+  statut                String        @default("OUVERT") // "OUVERT", "EN_ATTENTE_PAIEMENT", "EN_COURS", "TERMINE"
+  dateCreation          DateTime      @default(now())
+  stripePaymentIntentId String?       // <--- AJOUTER CETTE LIGNE
+
+  entrepriseId          Int
+  entreprise            Entreprise    @relation(fields: [entrepriseId], references: [id], onDelete: Cascade)
+  candidatures          Candidature[]
+}
+
+model Candidature {
+  id              Int       @id @default(autoincrement())
+  statut          String    @default("EN_ATTENTE") // "EN_ATTENTE", "ACCEPTE", "REFUSE"
+  datePostulation DateTime  @default(now())
+
+  missionId       Int
+  mission         Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  freelanceId     Int
+  freelance       Freelance @relation(fields: [freelanceId], references: [id], onDelete: Cascade)
+
+  @@unique([missionId, freelanceId])
+}
+
+model Avis {
+  id           Int      @id @default(autoincrement())
+  note         Float // ou Int
+  commentaire  String   @db.Text
+  dateCreation DateTime @default(now())
+
+  freelanceId Int
+  freelance   Freelance @relation(fields: [freelanceId], references: [id], onDelete: Cascade)
+
+  entrepriseId Int
+  entreprise   Entreprise @relation(fields: [entrepriseId], references: [id], onDelete: Cascade)
+
+  @@index([freelanceId])
+  @@index([entrepriseId])
+}
+
+model Message {
+  id           Int      @id @default(autoincrement())
+  expediteurId Int
+  recepteurId  Int
+  contenu      String
+  dateEnvoi    DateTime @default(now())
+
+  // Les relations pointent bien vers Utilisateur
+  expediteur Utilisateur @relation("MessagesEnvoyes", fields: [expediteurId], references: [id], map: "FK_Message_Expediteur")
+  recepteur  Utilisateur @relation("MessagesRecus", fields: [recepteurId], references: [id], map: "FK_Message_Recepteur")
+}
+enum StatutContrat {
+  BROUILLON
+  EN_COURS
+  TERMINE
+  ANNULE
+}
+
+enum StatutJalon {
+  EN_ATTENTE_FINANCEMENT  // Le jalon attend le paiement du client
+  FINANCE                 // Fonds bloqués sous séquestre
+  EN_REVISION             // Le freelance a soumis son livrable
+  VALIDE                  // Le client a validé la livraison
+  PAYE                    // Fonds débloqués et transférés au freelance
+}
+
+model Contrat {
+  id            Int           @id @default(autoincrement())
+  titre         String
+  description   String?
+  montantTotal  Float
+  statut        StatutContrat @default(EN_COURS)
+
+  freelanceId   Int
+  freelance     Freelance     @relation(fields: [freelanceId], references: [id])
+
+  entrepriseId  Int
+  entreprise    Entreprise    @relation(fields: [entrepriseId], references: [id])
+
+  jalons        Jalon[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Jalon {
+  id                    Int         @id @default(autoincrement())
+  titre                 String
+  description           String?
+  montant               Float
+  pourcentage           Float?
+  statut                StatutJalon @default(EN_ATTENTE_FINANCEMENT)
+  livrableUrl           String?
+  stripePaymentIntentId String?
+
+  contratId             Int
+  contrat               Contrat     @relation(fields: [contratId], references: [id], onDelete: Cascade)
+
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+}
